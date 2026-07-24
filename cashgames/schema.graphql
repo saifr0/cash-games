@@ -1,0 +1,90 @@
+type FundsWalletUpdated @entity(immutable: true) {
+  id: Bytes!
+  oldWallet: Bytes! # address
+  newWallet: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type OwnershipTransferStarted @entity(immutable: true) {
+  id: Bytes!
+  previousOwner: Bytes! # address
+  newOwner: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type OwnershipTransferred @entity(immutable: true) {
+  id: Bytes!
+  previousOwner: Bytes! # address
+  newOwner: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type Paused @entity(immutable: true) {
+  id: Bytes!
+  account: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type PresaleWalletUpdated @entity(immutable: true) {
+  id: Bytes!
+  oldWallet: Bytes! # address
+  newWallet: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type PriceFeedStalenessUpdated @entity(immutable: true) {
+  id: Bytes!
+  oldStaleness: BigInt! # uint256
+  newStaleness: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type StablecoinFeedStalenessUpdated @entity(immutable: true) {
+  id: Bytes!
+  oldStaleness: BigInt! # uint256
+  newStaleness: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type TokenPriceUpdated @entity(immutable: true) {
+  id: Bytes!
+  oldPrice: BigInt! # uint256
+  newPrice: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type TokensPurchased @entity(immutable: true) {
+  id: Bytes!
+  buyer: Bytes! # address
+  paymentAsset: Bytes! # address
+  amountPaid: BigInt! # uint256
+  usdValue: BigInt! # uint256
+  tokensBought: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type Unpaused @entity(immutable: true) {
+  id: Bytes!
+  account: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}

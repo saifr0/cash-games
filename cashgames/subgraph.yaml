@@ -1,0 +1,53 @@
+specVersion: 1.0.0
+indexerHints:
+  prune: auto
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: Presale
+    network: arbitrum-one
+    source:
+      address: "0x28149106058F0e23C93672Def291fA634dE4bD1A"
+      abi: Presale
+      startBlock: 484428796
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - FundsWalletUpdated
+        - OwnershipTransferStarted
+        - OwnershipTransferred
+        - Paused
+        - PresaleWalletUpdated
+        - PriceFeedStalenessUpdated
+        - StablecoinFeedStalenessUpdated
+        - TokenPriceUpdated
+        - TokensPurchased
+        - Unpaused
+      abis:
+        - name: Presale
+          file: ./abis/Presale.json
+      eventHandlers:
+        - event: FundsWalletUpdated(address,address)
+          handler: handleFundsWalletUpdated
+        - event: OwnershipTransferStarted(indexed address,indexed address)
+          handler: handleOwnershipTransferStarted
+        - event: OwnershipTransferred(indexed address,indexed address)
+          handler: handleOwnershipTransferred
+        - event: Paused(address)
+          handler: handlePaused
+        - event: PresaleWalletUpdated(address,address)
+          handler: handlePresaleWalletUpdated
+        - event: PriceFeedStalenessUpdated(uint256,uint256)
+          handler: handlePriceFeedStalenessUpdated
+        - event: StablecoinFeedStalenessUpdated(uint256,uint256)
+          handler: handleStablecoinFeedStalenessUpdated
+        - event: TokenPriceUpdated(uint256,uint256)
+          handler: handleTokenPriceUpdated
+        - event: TokensPurchased(indexed address,indexed address,uint256,uint256,uint256)
+          handler: handleTokensPurchased
+        - event: Unpaused(address)
+          handler: handleUnpaused
+      file: ./src/presale.ts
