@@ -26,14 +26,6 @@ interface AggregatorV3Interface {
 ///         All incoming funds are forwarded to `fundsWallet` at the time of purchase.
 ///         Each stablecoin has its own dedicated Chainlink price feed.
 ///
-/// Arbitrum One addresses (pass to constructor):
-///   USDC         0xaf88d065e77c8cC2239327C5EDb3A432268e5831
-///   USDT         0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9
-///   ETH/USD      0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612
-///   USDC/USD     0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3
-///   USDT/USD     0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7
-///
-/// On testnets without a USDT/USD feed, pass the USDC/USD address for both feed params.
 contract Presale is Ownable2Step, Pausable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
     using Address for address payable;
@@ -62,7 +54,7 @@ contract Presale is Ownable2Step, Pausable, ReentrancyGuardTransient {
     uint256 public constant MAX_TOKENS = 10_000_000 * 1e18;
 
     /// Token price bounds (6-decimal USD).
-    uint256 public constant MIN_TOKEN_PRICE =   1_000; // $0.001
+    uint256 public constant MIN_TOKEN_PRICE = 1_000; // $0.001
     uint256 public constant MAX_TOKEN_PRICE = 1_000_000_000; // $1 000
 
     /// Maximum acceptable staleness for any Chainlink feed.
@@ -328,7 +320,6 @@ contract Presale is Ownable2Step, Pausable, ReentrancyGuardTransient {
         emit TokenPriceUpdated(tokenPrice, newPrice);
         tokenPrice = newPrice;
     }
-
 
     function setPresaleWallet(address newWallet) external onlyOwner {
         if (newWallet == address(0) || newWallet == address(this)) {

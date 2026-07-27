@@ -7,3 +7,6 @@ remappings = [
     "@openzeppelin/=node_modules/@openzeppelin/",
 ]
 solc     = "0.8.31"
+
+[rpc_endpoints]
+arbitrum = "${URL_ARB}"

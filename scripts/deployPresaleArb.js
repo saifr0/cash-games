@@ -1,10 +1,20 @@
 const hre = require("hardhat");
 const { run } = require("hardhat");
 
-// ── Arbitrum One Chainlink price feeds ────────────────────────────────────────
-// ETH/USD  — 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612  (24h heartbeat)
-// USDC/USD — 0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3  (24h heartbeat)
-// USDT/USD — 0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7  (24h heartbeat)
+// ── Arbitrum One addresses ─────────────────────────────────────────────────────
+// $CASH token  : deployed via deployTeamVesting.js
+// USDC         : 0xaf88d065e77c8cC2239327C5EDb3A432268e5831
+// USDT         : 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9
+// ETH/USD feed : 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612  (24h heartbeat)
+// USDC/USD feed: 0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3  (24h heartbeat)
+// USDT/USD feed: 0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7  (24h heartbeat)
+//
+// Required .env vars:
+//   PRIVATE_KEY_ARB      — deployer private key
+//   URL_ARB              — Arbitrum RPC URL
+//   API_KEY              — Arbiscan API key
+//   FUNDS_WALLET         — wallet that receives all sale proceeds
+//   PRESALE_OWNER        — admin wallet (can pause, update price, etc.)
 //
 // Run:
 //   npx hardhat run scripts/deployPresaleArb.js --network arbitrum
@@ -17,7 +27,6 @@ async function verify(address, constructorArguments) {
     await run("verify:verify", { address, constructorArguments });
     console.log("Verified ✓");
   } catch (e) {
-    // "Already verified" is not a fatal error
     if (
       e.message.includes("Already Verified") ||
       e.message.includes("already verified")
@@ -31,68 +40,44 @@ async function verify(address, constructorArguments) {
 
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
-  console.log("Deployer  :", deployer.address);
+  console.log("Deployer :", deployer.address);
   console.log(
-    "Balance   :",
+    "Balance  :",
     hre.ethers.formatEther(
-      await hre.ethers.provider.getBalance(deployer.address),
+      await hre.ethers.provider.getBalance(deployer.address)
     ),
-    "ETH\n",
+    "ETH\n"
   );
 
-  // ── Wallets ────────────────────────────────────────────────────────────────
-  // Change these before deploying if you want separate wallets.
-  const presaleWallet = deployer.address; // holds 10 M $FCASH, must approve presale contract
-  const fundsWallet = deployer.address; // receives all purchase funds
-  const owner = deployer.address;
+  // ── Wallets ──────────────────────────────────────────────────────────────────
+  const fundsWallet   = process.env.FUNDS_WALLET;
+  const owner         = process.env.PRESALE_OWNER;
+  // privateSale wallet from token deployment — holds 10 M $CASH and must approve Presale
+  const presaleWallet = "0x1C495C54374cfE2CABD6B82ccDEFd8809238b231";
 
-  // ── 1. Deploy Fake Cash Games token ────────────────────────────────────────
-  const fakeCashArgs = [
-    "Fake Cash Games", // name
-    "$FCASH", // symbol
-    deployer.address, // houseWallet     (25 M)
-    "0x5DA60bEf555244263833a21EEb872Ed11A0AA62c", // stakingRewards  (50 M)
-    presaleWallet, // privateSale     (10 M) → presale allocation
-    deployer.address, // uniswapLiquidity(10 M)
-    deployer.address, // levelUpRewards  ( 5 M)
-  ];
+  if (!fundsWallet || !owner) {
+    throw new Error("Set FUNDS_WALLET and PRESALE_OWNER in .env");
+  }
 
-  // console.log("Deploying Fake Cash Games ($FCASH) …");
-  // const FakeCash = await hre.ethers.deployContract("CashGames", fakeCashArgs);
-  // await FakeCash.waitForDeployment();
-  // console.log("FakeCash deployed to :", FakeCash.target);
+  // ── Token & stablecoin addresses (Arbitrum One) ───────────────────────────────
+  const cashToken = "0xEb435353f3629340df75437AEA83C6C6455e43d6"; // $CASH
+  const usdc      = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // USDC
+  const usdt      = "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"; // USDT
 
-  // // ── 2. Deploy Mock USDC ────────────────────────────────────────────────────
-  // console.log("\nDeploying Mock USDC …");
-  // const MockUSDC = await hre.ethers.deployContract("MockERC20", [
-  //   "Mock USD Coin",
-  //   "USDC",
-  //   6,
-  // ]);
-  // await MockUSDC.waitForDeployment();
-  // console.log("MockUSDC deployed to :", MockUSDC.target);
+  // ── Chainlink feeds (Arbitrum One) ────────────────────────────────────────────
+  const ethPriceFeed  = "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612"; // ETH/USD
+  const usdcPriceFeed = "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3"; // USDC/USD
+  const usdtPriceFeed = "0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7"; // USDT/USD
 
-  // // ── 3. Deploy Mock USDT ────────────────────────────────────────────────────
-  // console.log("\nDeploying Mock USDT …");
-  // const MockUSDT = await hre.ethers.deployContract("MockERC20", [
-  //   "Mock Tether USD",
-  //   "USDT",
-  //   6,
-  // ]);
-  // await MockUSDT.waitForDeployment();
-  // console.log("MockUSDT deployed to :", MockUSDT.target);
+  // ── Token price ───────────────────────────────────────────────────────────────
+  // 6-decimal USD: 50_000 = $0.05 per token
+  const tokenPrice = 50_000;
 
-  // ── 4. Deploy Presale ──────────────────────────────────────────────────────
-  // Arbitrum One Chainlink feeds (all 24h heartbeat).
-  const ethPriceFeed = "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612"; // ETH/USD  Arb One
-  const usdcPriceFeed = "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3"; // USDC/USD Arb One
-  const usdtPriceFeed = "0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7"; // USDT/USD Arb One
-  const tokenPrice = 10_000; // $0.05 per token (6-decimal USD)
-
+  // ── 1. Deploy Presale ─────────────────────────────────────────────────────────
   const presaleArgs = [
-    "0xEb435353f3629340df75437AEA83C6C6455e43d6",
-    "0x6A8d8Fb8a160E2b836717b52Dd80641f53AFEF2b",
-    "0x6E50aAC7aa166Ff3e245983B2bd906a086847E1B",
+    cashToken,
+    usdc,
+    usdt,
     ethPriceFeed,
     usdcPriceFeed,
     usdtPriceFeed,
@@ -102,60 +87,44 @@ async function main() {
     owner,
   ];
 
-  // console.log("\nDeploying Presale …");
-  // const Presale = await hre.ethers.deployContract("Presale", presaleArgs);
-  // await Presale.waitForDeployment();
-  // console.log("Presale deployed to  :", Presale.target);
+  console.log("Deploying Presale …");
+  console.log("  $CASH       :", cashToken);
+  console.log("  presaleWallet:", presaleWallet);
+  console.log("  fundsWallet  :", fundsWallet);
+  console.log("  owner        :", owner);
+  console.log("  tokenPrice   :", tokenPrice, "($0.05 per token)");
 
-  // // ── 5. Update staleness to match Arbitrum 24h feed heartbeat ──────────────
-  // // Default priceFeedStaleness is 1h — too tight for Arb ETH/USD (24h heartbeat).
-  // console.log(
-  //   "\nUpdating priceFeedStaleness to 25h (24h heartbeat + 1h buffer) …",
-  // );
-  // const tx1 = await Presale.setPriceFeedStaleness(25 * 3600);
-  // await tx1.wait();
-  // console.log("priceFeedStaleness updated ✓");
+  const Presale = await hre.ethers.deployContract("Presale", presaleArgs);
+  await Presale.waitForDeployment();
+  console.log("\nPresale deployed to:", Presale.target);
 
-  // // ── 6. Approve Presale to pull 10 M $FCASH from presaleWallet ─────────────
-  // const approvalAmount = hre.ethers.parseEther("10000000");
-  // console.log("\nApproving Presale to spend 10 M $FCASH …");
-  // const tx2 = await FakeCash.approve(Presale.target, approvalAmount);
-  // await tx2.wait();
-  // console.log("Approval done ✓");
+  // ── 2. Update staleness to match Arbitrum 24h feed heartbeat ─────────────────
+  // Default priceFeedStaleness is 1h — too tight for Arb feeds (24h heartbeat).
+  console.log("\nUpdating feed staleness to 25h …");
+  const tx1 = await Presale.setPriceFeedStaleness(25 * 3600);
+  await tx1.wait();
+  const tx2 = await Presale.setStablecoinFeedStaleness(25 * 3600);
+  await tx2.wait();
+  console.log("Feed staleness updated ✓");
 
-  // // ── Summary ────────────────────────────────────────────────────────────────
-  // console.log("\n────────────────────────────────────────────────────");
-  // console.log("DEPLOYMENT SUMMARY (Arbitrum One)");
-  // console.log("────────────────────────────────────────────────────");
-  // console.log("FakeCash  ($FCASH) :", FakeCash.target);
-  // console.log("MockUSDC  (USDC)   :", MockUSDC.target);
-  // console.log("MockUSDT  (USDT)   :", MockUSDT.target);
-  // console.log("Presale            :", Presale.target);
-  // console.log("────────────────────────────────────────────────────\n");
+  // ── 3. Summary ────────────────────────────────────────────────────────────────
+  console.log("\n────────────────────────────────────────────────────");
+  console.log("DEPLOYMENT SUMMARY (Arbitrum One)");
+  console.log("────────────────────────────────────────────────────");
+  console.log("$CASH token  :", cashToken);
+  console.log("Presale      :", Presale.target);
+  console.log("fundsWallet  :", fundsWallet);
+  console.log("tokenPrice   : $0.05");
+  console.log("────────────────────────────────────────────────────");
+  console.log("\nNEXT STEP: approve Presale to spend 10 M $CASH");
+  console.log("  From wallet :", presaleWallet);
+  console.log("  Spender     :", Presale.target);
+  console.log("  Amount      : 10,000,000 tokens (10000000000000000000000000)");
 
-  // ── 7. Verify on Arbiscan ──────────────────────────────────────────────────
-  // Arbiscan rate-limit: wait between submissions.
-  console.log("Waiting 30s before verification …");
+  // ── 4. Verify on Arbiscan ─────────────────────────────────────────────────────
+  console.log("\nWaiting 30s before verification …");
   await delay(30_000);
-
-  await verify("0xEb435353f3629340df75437AEA83C6C6455e43d6", fakeCashArgs);
-  await delay(10_000);
-
-  await verify("0x6A8d8Fb8a160E2b836717b52Dd80641f53AFEF2b", [
-    "Mock USD Coin",
-    "USDC",
-    6,
-  ]);
-  await delay(10_000);
-
-  await verify("0x6E50aAC7aa166Ff3e245983B2bd906a086847E1B", [
-    "Mock Tether USD",
-    "USDT",
-    6,
-  ]);
-  await delay(10_000);
-
-  await verify("0x28149106058F0e23C93672Def291fA634dE4bD1A", presaleArgs);
+  await verify(Presale.target, presaleArgs);
 
   console.log("\nAll done.");
 }

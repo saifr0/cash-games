@@ -12,89 +12,53 @@ async function verify(address, constructorArguments) {
 }
 
 async function main() {
-  // ── Wallets ─────────────────────────────────────────────────────────────
-  const presaleWallet = "0x12eF0F1C99D8FD50fFd37cCd12B09Ef7f1213269"; // holds 10 M $CASH, must approve this contract
-  const fundsWallet = "0x12eF0F1C99D8FD50fFd37cCd12B09Ef7f1213269"; // receives all purchase funds
-  const owner = "0x12eF0F1C99D8FD50fFd37cCd12B09Ef7f1213269";
+  // ── Token & stablecoin addresses (Arbitrum One) ───────────────────────────────
+  const cashToken = "0x629AeA512023C6F0454AB9c16C7c8C20905aF1B7"; // $CASH
+  const usdc = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // USDC
+  const usdt = "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"; // USDT
 
-  // ── 1. Deploy CashGames ─────────────────────────────────────────────────
-  const cashGamesArgs = [
-    "Fake Cash Games",
-    "F-CashGames",
-    "0x12eF0F1C99D8FD50fFd37cCd12B09Ef7f1213269", // houseWallet
-    "0x12eF0F1C99D8FD50fFd37cCd12B09Ef7f1213269", // stakingRewards
-    presaleWallet, // privateSale → presaleWallet
-    "0x12eF0F1C99D8FD50fFd37cCd12B09Ef7f1213269", // uniswapLiquidity
-    "0x12eF0F1C99D8FD50fFd37cCd12B09Ef7f1213269", // levelUpRewards
-  ];
+  // ── Chainlink feeds (Arbitrum One) ────────────────────────────────────────────
+  const ethPriceFeed = "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612"; // ETH/USD
+  const usdcPriceFeed = "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3"; // USDC/USD
+  const usdtPriceFeed = "0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7"; // USDT/USD
+  const _presaleWallet = "0x1C495C54374cfE2CABD6B82ccDEFd8809238b231";
+  const _fundsWallet = "0x1C495C54374cfE2CABD6B82ccDEFd8809238b231";
+  const _tokenPrice = "10000";
+  const _owner = "0x70ae6a6B833a76d497A22a600C8a6896747478d1";
 
-  console.log("Deploying CashGames...");
-  const CashGames = await hre.ethers.deployContract("CashGames", cashGamesArgs);
-  await CashGames.waitForDeployment();
-  console.log("CashGames deployed to:", CashGames.target);
-
-  // ── 2. Deploy MockUSDC & MockUSDT ───────────────────────────────────────
-  console.log("Deploying MockUSDC...");
-  const MockUSDC = await hre.ethers.deployContract("MockERC20", [
-    "USD Coin",
-    "USDC",
-    6,
-  ]);
-  await MockUSDC.waitForDeployment();
-  console.log("MockUSDC deployed to:", MockUSDC.target);
-
-  console.log("Deploying MockUSDT...");
-  const MockUSDT = await hre.ethers.deployContract("MockERC20", [
-    "Tether USD",
-    "USDT",
-    6,
-  ]);
-  await MockUSDT.waitForDeployment();
-  console.log("MockUSDT deployed to:", MockUSDT.target);
-
-  // ── 3. Deploy Presale ───────────────────────────────────────────────────
-  const ethPriceFeed = "0x694AA1769357215DE4FAC081bf1f309aDC325306"; // ETH/USD  (Sepolia)
-  const usdcPriceFeed = "0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E"; // USDC/USD (Sepolia)
-  const usdtPriceFeed = "0xA2F78ab2355fe2f984D808B5CeE7FD0A93D5270E"; // no USDT/USD on Sepolia — reuse USDC/USD
-  const tokenPrice = 50_000; // $0.05 per token (6-decimal USD)
-
-  const presaleArgs = [
-    CashGames.target,
-    MockUSDC.target,
-    MockUSDT.target,
+  const Presale = await hre.ethers.deployContract("Presale", [
+    cashToken,
+    usdc,
+    usdt,
     ethPriceFeed,
     usdcPriceFeed,
     usdtPriceFeed,
-    presaleWallet,
-    fundsWallet,
-    tokenPrice,
-    owner,
-  ];
+    _presaleWallet,
+    _fundsWallet,
+    _tokenPrice,
+    _owner,
+  ]);
 
   console.log("Deploying Presale...");
-  const Presale = await hre.ethers.deployContract("Presale", presaleArgs);
+
   await Presale.waitForDeployment();
+
   console.log("Presale deployed to:", Presale.target);
 
-  // ── 4. Approve Presale to pull 10 M $CASH from presaleWallet ───────────
-  const approvalAmount = hre.ethers.parseEther("10000000");
-  await CashGames.approve(Presale.target, approvalAmount);
-  console.log("Approved Presale to spend 10 M $CASH");
+  await new Promise((resolve) => setTimeout(resolve, 20000));
 
-  // ── 5. Verify all contracts (sequential with delay to stay under rate limit)
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  await delay(20000);
-  await verify(CashGames.target, cashGamesArgs);
-
-  await delay(5000);
-  await verify(MockUSDC.target, ["USD Coin", "USDC", 6]);
-
-  await delay(5000);
-  await verify(MockUSDT.target, ["Tether USD", "USDT", 6]);
-
-  await delay(5000);
-  await verify(Presale.target, presaleArgs);
+  verify(Presale.target, [
+    cashToken,
+    usdc,
+    usdt,
+    ethPriceFeed,
+    usdcPriceFeed,
+    usdtPriceFeed,
+    _presaleWallet,
+    _fundsWallet,
+    _tokenPrice,
+    _owner,
+  ]);
 }
 
 main();

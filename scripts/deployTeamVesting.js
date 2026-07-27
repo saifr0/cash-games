@@ -38,17 +38,21 @@ async function main() {
   const vestingOpensAt = new Date((block.timestamp + cliffDuration) * 1000).toISOString();
   console.log("  Vesting opens at:", vestingOpensAt);
 
-  // ── Step 2: Deploy CashGames (mints 23.5 M directly to TeamVesting) ───────
+  // ── Step 2: Deploy CashGames ─────────────────────────────────────────────
+  const TEAM_VESTING_1 = process.env.TEAM_VESTING_1; // second vesting wallet
+  if (!TEAM_VESTING_1) throw new Error("Set TEAM_VESTING_1 in .env");
+
   console.log("\n── Step 2: Deploy CashGames ────────────────────────────────");
   const cashArgs = [
-    "Cash Games",
-    "CASH",
-    OWNER,         // houseWallet      25 M
-    OWNER,         // stakingRewards   50 M  (replace with real addresses)
-    OWNER,         // privateSale      10 M
-    OWNER,         // uniswapLiquidity 10 M
-    OWNER,         // levelUpRewards    5 M
-    vesting.target, // teamVesting     23.5 M  ← minted directly here
+    "$CASH",                                         // name
+    "$CASH",                                         // symbol
+    "0x921eF4f117460275eB8f54823282b9ef159F6815",   // stakingRewards   50 M
+    "0x1C495C54374cfE2CABD6B82ccDEFd8809238b231",   // privateSale      10 M
+    "0xa72564252A6e3BD4d9C0621ce4E415130D777B26",   // uniswapLiquidity 10 M
+    "0xdD9E784aDCF3616178099ca0198489094C75F0f1",   // levelUpRewards    5 M
+    vesting.target,                                  // teamVesting      23.4 M ← minted here
+    TEAM_VESTING_1,                                  // teamVesting1      1.5 M
+    "0xBDBe17B48F08FcDCd9D31F9171b39a161Bd7E688",   // dedicatedWallet   0.1 M
   ];
 
   const cash = await hre.ethers.deployContract("CashGames", cashArgs);
@@ -56,7 +60,7 @@ async function main() {
   console.log("  CashGames  :", cash.target);
   console.log("  Vesting balance:", hre.ethers.formatEther(
     await cash.balanceOf(vesting.target)
-  ), "CASH (should be 23500000)");
+  ), "CASH (should be 23400000)");
 
   // ── Step 3: Wire the token address into TeamVesting ────────────────────────
   console.log("\n── Step 3: setToken on TeamVesting ─────────────────────────");
