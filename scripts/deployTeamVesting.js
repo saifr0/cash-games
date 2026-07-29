@@ -1,82 +1,130 @@
 const hre = require("hardhat");
+const { ethers } = hre;
 
+/**
+ * Standalone TeamVesting deploy script.
+ * Use this when CashGames, Claiming, and Reservoir are already deployed.
+ * For a full-stack deploy (all contracts from scratch), use deployAll.js.
+ *
+ * Steps:
+ *   1. Deploy TeamVesting
+ *   2. token.approve(vesting, alloc)
+ *   3. vesting.depositToPool()
+ *
+ * Required env vars:
+ *   VESTING_TOKEN    — CashGames token address
+ *   VESTING_POOL     — Reservoir proxy address
+ *   VESTING_CLAIMING — Claiming contract address
+ *
+ * Optional env vars:
+ *   VESTING_OWNER    — defaults to deployer address
+ */
 async function main() {
-  // ── Config ────────────────────────────────────────────────────────────────
-  const BENEFICIARY = process.env.VESTING_BENEFICIARY;
-  const OWNER       = process.env.VESTING_OWNER;
+  const [deployer] = await ethers.getSigners();
+  console.log("Deployer :", deployer.address);
+  console.log("Network  :", hre.network.name);
 
-  if (!BENEFICIARY || !OWNER) {
-    throw new Error("Set VESTING_BENEFICIARY and VESTING_OWNER in .env");
+  // ── Config ────────────────────────────────────────────────────────────────
+  const OWNER    = process.env.VESTING_OWNER    || deployer.address;
+  const TOKEN    = process.env.VESTING_TOKEN;
+  const POOL     = process.env.VESTING_POOL;
+  const CLAIMING = process.env.VESTING_CLAIMING;
+
+  if (!TOKEN || !POOL || !CLAIMING) {
+    throw new Error("Missing env vars — set VESTING_TOKEN, VESTING_POOL, VESTING_CLAIMING");
   }
 
-  // ── Durations (test values) ───────────────────────────────────────────────
-  // Production : cliffDuration = 3 * 365 * 24 * 3600  (3 years)
-  //              monthDuration = 30 * 24 * 3600         (30 days)
-  const cliffDuration   = 10 * 60;    // 10 minutes  (testing)
-  const monthDuration   =  1 * 3600;  //  1 hour     (testing)
-  const totalAllocation = hre.ethers.parseEther("23400000"); // 23.4 M tokens (23.5 M − 100 k dedicated wallet)
+  // TODO: switch to production values before mainnet launch
+  //   CLIFF_DURATION = 3 * 365 * 24 * 3600  (94608000 — 3 years)
+  //   MONTH_DURATION = 30 * 24 * 3600        (2592000  — 30 days)
+  const CLIFF_DURATION = 10 * 60;  // 600  — 10 minutes
+  const MONTH_DURATION =  2 * 60;  // 120  — 2 minutes
 
-  // ── Step 1: Deploy TeamVesting (no token address yet) ─────────────────────
-  console.log("\n── Step 1: Deploy TeamVesting ──────────────────────────────");
-  console.log("  Beneficiary:", BENEFICIARY);
+  const TEAM_ALLOC = ethers.parseEther("23400000"); // 23.4 M tokens
+
+  console.log("\n── Config ──────────────────────────────────────────────────");
   console.log("  Owner      :", OWNER);
-  console.log("  Cliff      :", cliffDuration, "seconds (10 min)");
-  console.log("  Month      :", monthDuration,  "seconds (1 h)");
-  console.log("  Allocation :", hre.ethers.formatEther(totalAllocation), "tokens");
+  console.log("  Token      :", TOKEN);
+  console.log("  Pool       :", POOL);
+  console.log("  Claiming   :", CLAIMING);
+  console.log("  Cliff      :", CLIFF_DURATION, "seconds (10 min)");
+  console.log("  Month      :", MONTH_DURATION,  "seconds (2 min)");
+  console.log("  Allocation :", ethers.formatEther(TEAM_ALLOC), "CASH");
 
-  const vesting = await hre.ethers.deployContract("TeamVesting", [
-    BENEFICIARY,
+  // ── Step 1: Deploy TeamVesting ────────────────────────────────────────────
+  console.log("\nStep 1 / 3 — Deploying TeamVesting...");
+  const vesting = await ethers.deployContract("TeamVesting", [
     OWNER,
-    cliffDuration,
-    monthDuration,
-    totalAllocation,
+    TOKEN,
+    POOL,
+    CLAIMING,
+    CLIFF_DURATION,
+    MONTH_DURATION,
+    TEAM_ALLOC,
   ]);
   await vesting.waitForDeployment();
-  console.log("  TeamVesting:", vesting.target);
+  console.log("  TeamVesting :", vesting.target);
 
-  const block = await hre.ethers.provider.getBlock("latest");
-  const vestingOpensAt = new Date((block.timestamp + cliffDuration) * 1000).toISOString();
-  console.log("  Vesting opens at:", vestingOpensAt);
+  // ── Step 2: Approve ───────────────────────────────────────────────────────
+  console.log("\nStep 2 / 3 — token.approve(vesting, TEAM_ALLOC)...");
+  const token = await ethers.getContractAt("CashGames", TOKEN);
 
-  // ── Step 2: Deploy CashGames ─────────────────────────────────────────────
-  const TEAM_VESTING_1 = process.env.TEAM_VESTING_1; // second vesting wallet
-  if (!TEAM_VESTING_1) throw new Error("Set TEAM_VESTING_1 in .env");
+  const deployerBalance = await token.balanceOf(deployer.address);
+  if (deployerBalance < TEAM_ALLOC) {
+    throw new Error(
+      `Deployer has ${ethers.formatEther(deployerBalance)} CASH — needs ${ethers.formatEther(TEAM_ALLOC)}`
+    );
+  }
 
-  console.log("\n── Step 2: Deploy CashGames ────────────────────────────────");
-  const cashArgs = [
-    "$CASH",                                         // name
-    "$CASH",                                         // symbol
-    "0x921eF4f117460275eB8f54823282b9ef159F6815",   // stakingRewards   50 M
-    "0x1C495C54374cfE2CABD6B82ccDEFd8809238b231",   // privateSale      10 M
-    "0xa72564252A6e3BD4d9C0621ce4E415130D777B26",   // uniswapLiquidity 10 M
-    "0xdD9E784aDCF3616178099ca0198489094C75F0f1",   // levelUpRewards    5 M
-    vesting.target,                                  // teamVesting      23.4 M ← minted here
-    TEAM_VESTING_1,                                  // teamVesting1      1.5 M
-    "0xBDBe17B48F08FcDCd9D31F9171b39a161Bd7E688",   // dedicatedWallet   0.1 M
-  ];
+  const approveTx = await token.approve(vesting.target, TEAM_ALLOC);
+  await approveTx.wait();
+  console.log("  Approved. tx:", approveTx.hash);
 
-  const cash = await hre.ethers.deployContract("CashGames", cashArgs);
-  await cash.waitForDeployment();
-  console.log("  CashGames  :", cash.target);
-  console.log("  Vesting balance:", hre.ethers.formatEther(
-    await cash.balanceOf(vesting.target)
-  ), "CASH (should be 23400000)");
+  // ── Step 3: depositToPool ─────────────────────────────────────────────────
+  console.log("\nStep 3 / 3 — vesting.depositToPool()...");
+  const depositTx = await vesting.depositToPool();
+  await depositTx.wait();
+  console.log("  Tokens deposited into Reservoir ✓");
 
-  // ── Step 3: Wire the token address into TeamVesting ────────────────────────
-  console.log("\n── Step 3: setToken on TeamVesting ─────────────────────────");
-  const [signer] = await hre.ethers.getSigners();
-  const vestingWithSigner = vesting.connect(signer);
-  const tx = await vestingWithSigner.setToken(cash.target);
-  await tx.wait();
-  console.log("  setToken tx:", tx.hash);
-  console.log("  Token set  :", await vesting.token());
+  // ── Verify ────────────────────────────────────────────────────────────────
+  if (!["hardhat", "localhost"].includes(hre.network.name)) {
+    console.log("\nWaiting 20s for block explorer to index...");
+    await new Promise((r) => setTimeout(r, 20_000));
+
+    console.log("Verifying TeamVesting...");
+    try {
+      await hre.run("verify:verify", {
+        address: vesting.target,
+        constructorArguments: [OWNER, TOKEN, POOL, CLAIMING, CLIFF_DURATION, MONTH_DURATION, TEAM_ALLOC],
+      });
+      console.log("  Verified.");
+    } catch (e) {
+      if (e.message.includes("Already Verified")) {
+        console.log("  Already verified.");
+      } else {
+        console.error("  Verification failed:", e.message);
+      }
+    }
+  }
 
   // ── Summary ───────────────────────────────────────────────────────────────
-  console.log("\n── Done ────────────────────────────────────────────────────");
-  console.log("  TeamVesting :", vesting.target);
-  console.log("  CashGames   :", cash.target);
-  console.log("  Vesting opens:", vestingOpensAt);
-  console.log("  Beneficiary can call claim() after the cliff lifts.");
+  const block       = await ethers.provider.getBlock("latest");
+  const cliffEndsAt = new Date((block.timestamp + CLIFF_DURATION) * 1000).toISOString();
+
+  console.log("\n══════════════════════════════════════════════════════════════");
+  console.log("  TeamVesting     :", vesting.target);
+  console.log("  Token           :", await vesting.token());
+  console.log("  Pool            :", await vesting.pool());
+  console.log("  Claiming        :", await vesting.claiming());
+  console.log("  Monthly amount  :", ethers.formatEther(await vesting.monthlyAmount()), "CASH");
+  console.log("  Deposited       :", await vesting.depositedToPool());
+  console.log("  Cliff ends at   :", cliffEndsAt);
+  console.log("══════════════════════════════════════════════════════════════");
+  console.log("\nPost-cliff lifecycle:");
+  console.log("  1. vesting.withdraw()                 — initiates Reservoir → Claiming redemption");
+  console.log("  2. (wait 1-min Claiming cooldown)");
+  console.log("  3. vesting.claimFromClaiming(<index>) — pulls tokens into TeamVesting");
+  console.log("  4. vesting.claim()                    — sends each monthly tranche to owner");
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

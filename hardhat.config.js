@@ -19,8 +19,12 @@ module.exports = {
 
   networks: {
     hardhat: {
-      ...(process.env.URL_SEPOLIA ? { forking: { url: process.env.URL_SEPOLIA } } : {}),
-      chainId: 11155111,
+      // Set FORK_ARB=true in .env to fork Arbitrum mainnet locally.
+      ...(process.env.FORK_ARB === "true" && process.env.URL_ARB
+        ? { forking: { url: process.env.URL_ARB }, chainId: 42161 }
+        : process.env.URL_SEPOLIA
+        ? { forking: { url: process.env.URL_SEPOLIA }, chainId: 11155111 }
+        : { chainId: 31337 }),
     },
     mainnet: {
       url: process.env.URL_MAIN || "",

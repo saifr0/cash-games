@@ -6,17 +6,17 @@ import {TeamVesting} from "../../contracts/TeamVesting.sol";
 import {MockERC20} from "../../contracts/MockERC20.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Base fixture  (mirrors real deploy order)
-//   1. Deploy TeamVesting  (no token yet)
-//   2. Mint tokens directly to vesting contract  (simulates CashGames mint)
-//   3. Call setToken()
+// Base fixture
+//   1. Deploy TeamVesting  (token + pool wired in constructor)
+//   2. Mint tokens directly to vesting contract
 // ─────────────────────────────────────────────────────────────────────────────
 contract VestingBase is Test {
     TeamVesting internal vesting;
     MockERC20   internal token;
 
-    address internal owner       = makeAddr("owner");
-    address internal beneficiary = makeAddr("beneficiary");
+    address internal owner    = makeAddr("owner");
+    address internal pool     = makeAddr("pool");    // dummy EOA — depositWithSlippage is mocked
+    address internal claiming = makeAddr("claiming"); // dummy EOA — not called in constructor
 
     uint256 internal constant ALLOCATION = 23_500_000 * 1e18;
     uint256 internal constant CLIFF      = 3 * 365 days;
@@ -24,16 +24,21 @@ contract VestingBase is Test {
     uint256 internal constant MONTH      = 30 days;
 
     function setUp() public virtual {
-        // Step 1 — deploy vesting (token unknown)
-        vesting = new TeamVesting(beneficiary, owner, CLIFF, MONTH, ALLOCATION);
-
-        // Step 2 — mint tokens directly to vesting (simulates CashGames constructor)
         token = new MockERC20("CashGames", "CASH", 18);
-        token.mint(address(vesting), ALLOCATION);
 
-        // Step 3 — wire token address
-        vm.prank(owner);
-        vesting.setToken(address(token));
+        // Predict the vesting address so we can approve before deploying.
+        address predictedVesting = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        token.mint(address(this), ALLOCATION);
+        token.approve(predictedVesting, ALLOCATION);
+
+        // Pool is an EOA in unit tests; mock depositWithSlippage so tokens stay in TeamVesting.
+        vm.mockCall(
+            pool,
+            abi.encodeWithSignature("depositWithSlippage(address,uint256,address,uint256)"),
+            abi.encode(uint256(0))
+        );
+
+        vesting = new TeamVesting(owner, address(token), pool, claiming, CLIFF, MONTH, ALLOCATION);
     }
 
     function _warpMonths(uint256 n) internal {
@@ -41,10 +46,10 @@ contract VestingBase is Test {
     }
 
     function _claim() internal returns (uint256) {
-        uint256 before = token.balanceOf(beneficiary);
-        vm.prank(beneficiary);
+        uint256 before = token.balanceOf(owner);
+        vm.prank(owner);
         vesting.claim();
-        return token.balanceOf(beneficiary) - before;
+        return token.balanceOf(owner) - before;
     }
 }
 
@@ -59,10 +64,6 @@ contract TeamVestingUnitTest is VestingBase {
         assertEq(vesting.vestingStart(), block.timestamp + CLIFF);
     }
 
-    function test_constructor_setsBeneficiary() public view {
-        assertEq(vesting.beneficiary(), beneficiary);
-    }
-
     function test_constructor_setsTotalAllocation() public view {
         assertEq(vesting.totalAllocation(), ALLOCATION);
     }
@@ -71,93 +72,76 @@ contract TeamVestingUnitTest is VestingBase {
         assertEq(vesting.monthlyAmount(), ALLOCATION / MONTHS);
     }
 
-    function test_constructor_revertsZeroBeneficiary() public {
+    function test_constructor_setsToken() public view {
+        assertEq(address(vesting.token()), address(token));
+    }
+
+    function test_constructor_setsPool() public view {
+        assertEq(address(vesting.pool()), pool);
+    }
+
+    function test_constructor_revertsZeroToken() public {
         vm.expectRevert(TeamVesting.ZeroAddress.selector);
-        new TeamVesting(address(0), owner, CLIFF, MONTH, ALLOCATION);
+        new TeamVesting(owner, address(0), pool, claiming, CLIFF, MONTH, ALLOCATION);
+    }
+
+    function test_constructor_revertsZeroPool() public {
+        vm.expectRevert(TeamVesting.ZeroAddress.selector);
+        new TeamVesting(owner, address(token), address(0), claiming, CLIFF, MONTH, ALLOCATION);
+    }
+
+    function test_constructor_revertsZeroClaiming() public {
+        vm.expectRevert(TeamVesting.ZeroAddress.selector);
+        new TeamVesting(owner, address(token), pool, address(0), CLIFF, MONTH, ALLOCATION);
     }
 
     function test_constructor_revertsZeroAllocation() public {
         vm.expectRevert(TeamVesting.ZeroAmount.selector);
-        new TeamVesting(beneficiary, owner, CLIFF, MONTH, 0);
-    }
-
-    // ── setToken ──────────────────────────────────────────────────────────────
-
-    function test_setToken_setsAddress() public view {
-        assertEq(address(vesting.token()), address(token));
-    }
-
-    function test_setToken_emitsEvent() public {
-        TeamVesting v = new TeamVesting(beneficiary, owner, CLIFF, MONTH, ALLOCATION);
-        vm.expectEmit(true, false, false, false);
-        emit TeamVesting.TokenSet(address(token));
-        vm.prank(owner);
-        v.setToken(address(token));
-    }
-
-    function test_setToken_revertsSecondCall() public {
-        vm.prank(owner);
-        vm.expectRevert(TeamVesting.TokenAlreadySet.selector);
-        vesting.setToken(address(token));
-    }
-
-    function test_setToken_revertsZeroAddress() public {
-        TeamVesting v = new TeamVesting(beneficiary, owner, CLIFF, MONTH, ALLOCATION);
-        vm.prank(owner);
-        vm.expectRevert(TeamVesting.ZeroAddress.selector);
-        v.setToken(address(0));
-    }
-
-    function test_setToken_revertsNonOwner() public {
-        TeamVesting v = new TeamVesting(beneficiary, owner, CLIFF, MONTH, ALLOCATION);
-        vm.expectRevert();
-        v.setToken(address(token));
+        new TeamVesting(owner, address(token), pool, claiming, CLIFF, MONTH, 0);
     }
 
     // ── claim — pre-conditions ────────────────────────────────────────────────
 
-    function test_claim_revertsTokenNotSet() public {
-        TeamVesting v = new TeamVesting(beneficiary, owner, CLIFF, MONTH, ALLOCATION);
-        vm.warp(v.vestingStart() + MONTH);
-        vm.expectRevert(TeamVesting.TokenNotSet.selector);
-        vm.prank(beneficiary);
-        v.claim();
-    }
-
     function test_claim_revertsVestingNotStarted() public {
         vm.expectRevert(TeamVesting.VestingNotStarted.selector);
-        vm.prank(beneficiary);
+        vm.prank(owner);
         vesting.claim();
     }
 
     function test_claim_revertsNothingToClaim_exactlyAtVestingStart() public {
         vm.warp(vesting.vestingStart());
         vm.expectRevert(TeamVesting.NothingToClaim.selector);
-        vm.prank(beneficiary);
+        vm.prank(owner);
         vesting.claim();
+    }
+
+    function test_claim_revertsNonOwner() public {
+        _warpMonths(1);
+        vm.expectRevert();
+        vesting.claim(); // no prank — caller is address(this)
     }
 
     // ── double-claim protection ───────────────────────────────────────────────
 
     function test_claim_revertsOnDoubleClaim_sameMonth() public {
         _warpMonths(1);
-        vm.prank(beneficiary); vesting.claim();
+        vm.prank(owner); vesting.claim();
         vm.expectRevert(TeamVesting.NothingToClaim.selector);
-        vm.prank(beneficiary); vesting.claim();
+        vm.prank(owner); vesting.claim();
     }
 
     function test_claim_revertsOnDoubleClaim_middleOfSchedule() public {
         _warpMonths(5);
-        vm.prank(beneficiary); vesting.claim();
+        vm.prank(owner); vesting.claim();
         vm.expectRevert(TeamVesting.NothingToClaim.selector);
-        vm.prank(beneficiary); vesting.claim();
+        vm.prank(owner); vesting.claim();
     }
 
     function test_claim_revertsOnDoubleClaim_afterFullVesting() public {
         _warpMonths(MONTHS);
-        vm.prank(beneficiary); vesting.claim();
+        vm.prank(owner); vesting.claim();
         vm.expectRevert(TeamVesting.NothingToClaim.selector);
-        vm.prank(beneficiary); vesting.claim();
+        vm.prank(owner); vesting.claim();
     }
 
     // ── equal monthly amounts ─────────────────────────────────────────────────
@@ -220,11 +204,11 @@ contract TeamVestingUnitTest is VestingBase {
     // ── monthsClaimed tracking ────────────────────────────────────────────────
 
     function test_monthsClaimed_incrementsCorrectly() public {
-        _warpMonths(1);      vm.prank(beneficiary); vesting.claim();
+        _warpMonths(1);      vm.prank(owner); vesting.claim();
         assertEq(vesting.monthsClaimed(), 1);
-        _warpMonths(5);      vm.prank(beneficiary); vesting.claim();
+        _warpMonths(5);      vm.prank(owner); vesting.claim();
         assertEq(vesting.monthsClaimed(), 5);
-        _warpMonths(MONTHS); vm.prank(beneficiary); vesting.claim();
+        _warpMonths(MONTHS); vm.prank(owner); vesting.claim();
         assertEq(vesting.monthsClaimed(), MONTHS);
     }
 
@@ -234,40 +218,9 @@ contract TeamVestingUnitTest is VestingBase {
         _warpMonths(2);
         uint256 expected = 2 * (ALLOCATION / MONTHS);
         vm.expectEmit(true, false, false, true);
-        emit TeamVesting.Claimed(beneficiary, expected, 2);
-        vm.prank(beneficiary);
+        emit TeamVesting.Claimed(owner, expected, 2);
+        vm.prank(owner);
         vesting.claim();
-    }
-
-    // ── setBeneficiary ────────────────────────────────────────────────────────
-
-    function test_setBeneficiary_updatesAddress() public {
-        address newBen = makeAddr("newBen");
-        vm.prank(owner);
-        vesting.setBeneficiary(newBen);
-        assertEq(vesting.beneficiary(), newBen);
-    }
-
-    function test_setBeneficiary_revertsZeroAddress() public {
-        vm.prank(owner);
-        vm.expectRevert(TeamVesting.ZeroAddress.selector);
-        vesting.setBeneficiary(address(0));
-    }
-
-    function test_setBeneficiary_revertsNonOwner() public {
-        vm.expectRevert();
-        vesting.setBeneficiary(makeAddr("x"));
-    }
-
-    function test_setBeneficiary_newBeneficiaryReceivesNextClaim() public {
-        address newBen = makeAddr("newBen");
-        vm.prank(owner);
-        vesting.setBeneficiary(newBen);
-        _warpMonths(1);
-        vm.prank(newBen);
-        vesting.claim();
-        assertEq(token.balanceOf(newBen),      ALLOCATION / MONTHS);
-        assertEq(token.balanceOf(beneficiary), 0);
     }
 
     // ── views ─────────────────────────────────────────────────────────────────
@@ -293,8 +246,9 @@ contract TeamVestingUnitTest is VestingBase {
 contract TeamVestingFuzzTest is Test {
     MockERC20 internal token;
 
-    address internal owner       = makeAddr("owner");
-    address internal beneficiary = makeAddr("beneficiary");
+    address internal owner    = makeAddr("owner");
+    address internal pool     = makeAddr("pool");
+    address internal claiming = makeAddr("claiming");
 
     uint256 internal constant CLIFF  = 3 * 365 days;
     uint256 internal constant MONTH  = 30 days;
@@ -305,10 +259,17 @@ contract TeamVestingFuzzTest is Test {
     }
 
     function _deploy(uint256 alloc) internal returns (TeamVesting v) {
-        v = new TeamVesting(beneficiary, owner, CLIFF, MONTH, alloc);
-        token.mint(address(v), alloc);
-        vm.prank(owner);
-        v.setToken(address(token));
+        address predictedAddr = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        token.mint(address(this), alloc);
+        token.approve(predictedAddr, alloc);
+
+        vm.mockCall(
+            pool,
+            abi.encodeWithSignature("depositWithSlippage(address,uint256,address,uint256)"),
+            abi.encode(uint256(0))
+        );
+
+        v = new TeamVesting(owner, address(token), pool, claiming, CLIFF, MONTH, alloc);
     }
 
     function _warpMonths(TeamVesting v, uint256 n) internal {
@@ -316,10 +277,10 @@ contract TeamVestingFuzzTest is Test {
     }
 
     function _claim(TeamVesting v) internal returns (uint256) {
-        uint256 before = token.balanceOf(beneficiary);
-        vm.prank(beneficiary);
+        uint256 before = token.balanceOf(owner);
+        vm.prank(owner);
         v.claim();
-        return token.balanceOf(beneficiary) - before;
+        return token.balanceOf(owner) - before;
     }
 
     function testFuzz_allMonthsSum_equalsAllocation(uint256 alloc) public {
@@ -370,9 +331,9 @@ contract TeamVestingFuzzTest is Test {
         claimAtMonth = bound(claimAtMonth, 1, MONTHS);
         TeamVesting v = _deploy(alloc);
         _warpMonths(v, claimAtMonth);
-        vm.prank(beneficiary); v.claim();
+        vm.prank(owner); v.claim();
         vm.expectRevert(TeamVesting.NothingToClaim.selector);
-        vm.prank(beneficiary); v.claim();
+        vm.prank(owner); v.claim();
     }
 
     function testFuzz_claimableMatchesClaim(uint256 alloc, uint256 claimAtMonth) public {
