@@ -35,19 +35,15 @@ interface IGamePool {
 /// @notice Linear monthly vesting — owner claims tokens directly.
 ///
 /// Deploy order:
-///   1. Deployer approves the future contract address for totalAllocation tokens.
-///   2. Deploy TeamVesting — constructor pulls tokens from deployer and deposits
-///      them into the pool immediately.
-///   3. Cliff elapses → owner withdraws from pool, then calls claim().
+///   1. Deploy TeamVesting.
+///   2. token.approve(vestingAddress, totalAllocation).
+///   3. Call depositToPool() — pulls tokens from caller and deposits into Reservoir.
 ///
-/// Pool flow (owner-controlled):
-///   withdraw(amount)  — owner pulls tokens back ONLY after cliff has elapsed
-///
-/// Intended lifecycle:
-///   • During cliff: tokens are in the pool earning yield (deposited at construction).
-///   • Cliff elapses: withdraw window opens.
-///   • Owner withdraws everything back so vesting can proceed.
-///   • After cliff: owner claims monthly tranches normally.
+/// Post-cliff lifecycle:
+///   1. withdraw()                 — after cliff elapses, initiates Reservoir → Claiming redemption.
+///   2. (wait Claiming cooldown)
+///   3. claimFromClaiming(index)   — pulls tokens from Claiming into this contract.
+///   4. claim()                    — callable monthly; sends each tranche to owner.
 contract TeamVesting is Ownable2Step {
     using SafeERC20 for IERC20;
 
@@ -73,7 +69,6 @@ contract TeamVesting is Ownable2Step {
     uint256 public constant VESTING_MONTHS = 24;
 
     // ── Immutables ───────────────────────────────────────────────────────────
-    uint256 public immutable CLIFF_DURATION;
     uint256 public immutable MONTH_DURATION;
     uint256 public immutable vestingStart;
     uint256 public totalAllocation;
@@ -108,7 +103,6 @@ contract TeamVesting is Ownable2Step {
         token = IERC20(_token);
         pool = IGamePool(_pool);
         claiming = IClaiming(_claiming);
-        CLIFF_DURATION = _cliffDuration;
         MONTH_DURATION = _monthDuration;
         vestingStart = block.timestamp + _cliffDuration;
         totalAllocation = _totalAllocation;
@@ -178,10 +172,8 @@ contract TeamVesting is Ownable2Step {
     ///         Owner only. Tokens land here because TeamVesting is the registered
     ///         claimer in the Claiming contract.
     function claimFromClaiming(uint256 index) external onlyOwner {
-        uint256 balBefore = token.balanceOf(address(this));
         claiming.claimRequest(index);
-        uint256 received = token.balanceOf(address(this)) - balBefore;
-
+        uint256 received = token.balanceOf(address(this));
         totalAllocation = received;
         monthlyAmount = received / VESTING_MONTHS;
         tokensReady = true;
